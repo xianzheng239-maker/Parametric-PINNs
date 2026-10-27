@@ -1,0 +1,1551 @@
+         Parametric Feedback Control for Shaping Stationary Probability Density Using
+                             Physics-Informed Neural Networks
+
+                                         Wantao Jiaa,b , Xianzheng Lia,b , Xiaotong Fenga,b,∗
+                     a School of Mathematics and Statistics, Northwestern Polytechnical University, Xi’an, 710072, China
+           b MOE Key Laboratory for Complexity Science in Aerospace, Northwestern Polytechnical University, Xi’an, 710072, China
+
+
+
+
+     Abstract
+     This paper develops a physics-informed neural network framework for feedback control of the stationary probability
+     density of stochastic dynamical systems. The objective is to obtain approximate density-matching feedback controls
+     for prescribed stationary target densities under the Fokker–Planck–Kolmogorov constraints. It is assumed that the
+     considered closed-loop systems admit suitable stationary distributions at fixed target-parameter values. The framework
+     uses separate density and control networks to construct a parameter-conditioned approximation, and compares three
+     FPK-residual treatment strategies under a common base training configuration and strategy-specific hyperparameter
+     settings. The density tracking problem is formulated as a constrained optimization problem, and three constraint
+     handling strategies are investigated: the soft constraint method, penalty method, and barrier method. The neural
+     networks take both state variables and target distribution parameters as inputs, enabling parametric predictions of
+     stationary probability density functions (PDFs) and their associated feedback controls within prescribed parameter
+     ranges without retraining. Under the adopted training and simulation settings, the barrier method achieves the
+     lowest reported closed-loop Monte Carlo (MC) L1 density errors for both Single-degree-of-freedom (SDOF) targets and
+     both levitation targets, demonstrating an accuracy advantage in these two-dimensional cases. The method rankings
+     vary across the Duffing marginals, while the first SDOF benchmark shows a higher training cost for the barrier
+     method. Independent MC simulations are further conducted by substituting the learned feedback controls into the
+     original stochastic systems. Under the simulated initial conditions and numerical settings, the long-time MC response
+     densities reproduce the principal distributional characteristics of the prescribed targets at representative parameter
+     values. These results do not establish uniqueness of the stationary distribution or convergence from arbitrary initial
+     distributions. Overall, the proposed framework provides a unified approach for parametric stationary probability
+     density control without requiring a prescribed analytical feedback law, and the numerical results demonstrate its
+     capabilities in parametric approximation, constraint handling, and closed-loop response prediction.
+     Keywords: Physics-informed neural networks, Stochastic dynamical systems, Fokker-Planck-Kolmogorov equation,
+     Parametric Feedback control, Probability density tracking, Deep learning
+
+
+1    1. Introduction
+
+2        In many scientific and industrial applications, it is necessary to regulate the dynamical behavior of a system in order
+3    to meet performance and safety requirements. For stochastic dynamical systems[1, 2], traditional control objectives are
+4    often formulated in terms of statistical moments of the system response, such as the mean, variance, and covariance[3, 4].
+5    These low-order statistics provide useful information but cannot fully characterize the stochastic response, particularly
+6    when the response exhibits non-Gaussian features, multi-modal distributions, or pronounced tail behavior [5, 6]. This
+7    limitation motivates stochastic tracking control, in which the stationary response probability density is taken as the
+8    control objective. Compared with moment control, density tracking control is more challenging because the control
+9    law must shape an entire distribution while preserving the feasibility requirements of a probability density function
+10   (PDF).
+
+
+       ∗ Corresponding author
+
+        Email address: xtfeng@mail.nwpu.edu.cn (Xiaotong Feng)
+11       The concept of PDF shaping control has attracted considerable attention in the control community over the past two
+12   decades. Early work by Wang [7] established a B-spline-based framework for controlling the output PDF in discrete
+13   time systems, which was subsequently extended to multivariate systems [8] and bounded control scenarios [9, 10].
+14   For continuous time stochastic systems governed by stochastic differential equations (SDEs), the stationary PDF
+15   is characterized by the Fokker-Planck-Kolmogorov (FPK) equation [11, 12]. Annunziato and Borzì [13] formulated
+16   the PDF control problem as a bilinear optimal control problem governed by the FPK equation. On the analytical
+17   side, Zhu et al. [14, 15] designed tracking control for multi-degree-of-freedom nonlinear systems by exploiting exact
+18   stationary solutions, while Yang et al. [16] developed a Hamiltonian-based feedback control strategy using polynomial
+19   expansions and stochastic averaging. Stochastic averaging techniques have also been extended to systems under
+20   combined Gaussian and Poisson white noise excitations [17, 18], broadening the applicability of analytical methods to
+21   non-Gaussian stochastic environments. Alongside classical formulations, probabilistic target tracking has recently been
+22   investigated for practical systems under diffusion and jump disturbances [19], while stationary PDF tracking control
+23   has been developed for stochastic levitation systems [20].
+24       These developments motivate consideration of analytical applicability, numerical dimensionality, and reuse across
+25   target-parameter values. First, analytical approaches that yield closed-form control expressions rely on restrictive
+26   solvability conditions and are therefore applicable only to systems with specific structures [21–23]. Second, numerical
+27   methods for the FPK equation, such as finite element methods[24, 25], finite difference methods[26], spectral methods
+28   [27], and path integral methods [28–30], can alleviate the limitations imposed by analytical solvability conditions to
+29   some extent. However, they suffer from the curse of dimensionality [31] and typically require substantial computational
+30   effort for each parameter configuration. Third, many applications require feedback controls for families of prescribed
+31   target densities with varying widths, locations, or shapes. When a parameterized analytical control expression is
+32   available, it can be evaluated directly at different parameter values, as illustrated by Eq.(25). For problems addressed
+33   through numerical approximation, a parameter-conditioned model offers a reusable mapping from target-distribution
+34   parameters to stationary PDFs and associated feedback controls. Once trained, it can be evaluated within the prescribed
+35   parameter range without separate training or a new numerical solution for each target-parameter value.
+36       In recent years, deep learning methods have shown promising potential for solving the FPK equation and approx-
+37   imating response PDFs under prescribed dynamics in stochastic dynamical systems [32–35]. In particular, Physics-
+38   Informed Neural Networks (PINNs) [36–41] provide a framework for solving forward and inverse problems by integrating
+39   physical constraints into deep learning. Through automatic differentiation, PINNs incorporate governing equation and
+40   boundary condition residuals into the training objective to approximate solutions to the underlying problems. Building
+41   on these developments, stationary PDF tracking control can be formulated as an inverse design problem, in which the
+42   feedback control is sought so that the controlled stationary density approaches a prescribed target under the stationary
+43   FPK equation constraint. Related PINN-based studies provide a methodological basis for this formulation. Mowlavi
+44   and Nabi [42] investigated partial differential equation(PDE) constrained optimal control using PINNs, while Lu et
+45   al. [43] developed PINNs with hard constraints for inverse design, including PDE constrained topology optimiza-
+46   tion. In addition, neural network based equation discovery has explored constrained optimization as an alternative
+47   to unconstrained formulations [44], highlighting the importance of constraint treatment in physics-informed learning.
+48   Although these studies address different optimization objectives and inverse problems, they provide useful insights into
+49   incorporating physical constraints into neural network based inverse design for stationary density tracking control.
+50       More directly related to this problem, Jia et al. [45] developed a neural network based approach for stationary
+51   PDF tracking control by incorporating conditions associated with asymptotic stability in distribution, the stationary
+52   FPK, detailed balance, and controller uniqueness into a weighted training objective. Their multi-output network
+53   approximates the reversible and irreversible components of the control, with the prescribed target density directly
+54   incorporated into the physical residuals. The proposed framework takes state variables as network inputs and considers
+55   fixed target distributions in its numerical examples, without demonstrating the use of a single trained model for varying
+56   target-distribution parameters within a prescribed range. Based on these developments, the present study focuses on
+57   two questions: how to reuse trained models as target-distribution parameters vary, and how different treatments of the
+58   governing-equation residual affect stationary density approximation and closed-loop stationary density matching.
+59       The main contributions of this paper are as follows:
+
+
+                                                                2
+60     1. We construct a parameter-conditioned approximation of stationary density–control pairs by including state vari-
+61        ables and target-distribution parameters as inputs to separate density and control networks. The displayed
+62        parameter sweeps assess reuse of the trained networks without separate training for each target parameter value.
+63     2. We compare a fixed-weight soft-constraint formulation, an FPK-residual penalty formulation, and an auxiliary-
+64        variable formulation with multipliers and a clipped logarithmic term under a common base training configuration
+65        and strategy-specific hyperparameter settings. Evaluation includes stationary-density comparisons and parameter
+66        sweeps for a single-degree-of-freedom oscillator, an electromagnetic levitation system, and a four-dimensional
+67        coupled Duffing system, together with closed-loop Monte Carlo(MC) validation at representative parameter
+68        values.
+69      The remainder of this paper is organized as follows. Section 2 formulates the feedback control problem for tracking
+70   a prescribed stationary PDF and presents the constrained optimization formulation. Section 3 presents the proposed
+71   PINNs-based strategy together with the constraint handling techniques used for training. Section 4 demonstrates the
+72   performance of the proposed methods through numerical examples. Section 5 concludes the paper.
+
+
+73   2. Feedback control for targeting a prescribed stationary PDF
+
+74   2.1. Problem setup
+75      Consider a controlled nonlinear stochastic system described by the Itô SDE
+                                                                        m
+                                                                       ∑︂
+                             dXi = fi (X, θ)dt + ui (X, θ)dt +               σik (X, θ)dBk (t),     i = 1, 2, . . . , n,   (1)
+                                                                       k=1
+
+
+76   where X = (X1 , . . . , Xn )T ∈ Rn is the state vector, fi : Rn × Rq → R are the drift coefficients representing the
+77   uncontrolled dynamics, σik : Rn × Rq → R are the diffusion coefficients, ui : Rn × Rq → R are the feedback control
+78   forces to be designed, and {Bk (t)}mk=1 are independent standard Brownian motions. The parameter vector θ ∈ Ωθ ⊂ R
+                                                                                                                             q
+
+79   collects the target-distribution parameters considered in the parametric study, such as parameters controlling the width,
+80   location, or shape of the prescribed density.
+81       The stationary PDF of the system Eq.(1), if it exists, is governed by the FPK equation
+                                             n                               n
+                                            ∑︂   ∂                       1 ∑︂      ∂2
+                          L[p, u; θ] := −           [ai (x, θ)p(x, θ)] +                 [bij (x, θ)p(x, θ)] = 0,          (2)
+                                            i=1
+                                                ∂xi                      2 i,j=1 ∂xi ∂xj
+
+82   where x ∈ Rn denotes the state space variable, p(x, θ) is the stationary PDF, and the coefficients are defined as
+                                                                                        m
+                                                                                       ∑︂
+                                ai (x, θ) = fi (x, θ) + ui (x, θ),      bij (x, θ) =         σik (x, θ)σjk (x, θ).         (3)
+                                                                                       k=1
+
+83      The stationary PDF must satisfy the boundary condition
+
+                                                                 lim   p(x, θ) = 0,                                        (4)
+                                                           |x|→+∞
+
+
+84   and the normalization condition                        ∫︂
+                                                                   p(x, θ) dx = 1.                                         (5)
+                                                             Rn
+
+85      Additionally, as a probability density, p(x, θ) must be non-negative:
+
+                                                         p(x, θ) ≥ 0,        ∀ x ∈ Rn .                                    (6)
+
+86      The control objective is to design the feedback control u(x, θ) such that the stationary PDF of the controlled
+87   system matches a prescribed target PDF ptarget (x, θ). Here, the target PDF is parameterized by θ, which allows for
+
+
+                                                                        3
+ 88   a unified treatment in which a single pair of neural networks can be evaluated over the prescribed target-parameter
+ 89   range without parameter-specific retraining.
+ 90       For each fixed θ, this study concerns stationary density shaping rather than transient distribution tracking. The
+ 91   interpretation of p as a closed-loop stationary PDF presupposes that the considered controlled system admits a suitable
+ 92   stationary distribution with a density satisfying the stated integrability and boundary requirements. A density–control
+ 93   pair that approximately satisfies the stationary FPK equation does not by itself establish uniqueness of that stationary
+ 94   distribution or convergence to it from arbitrary initial distributions. The parameterized networks represent a family of
+ 95   fixed-parameter stationary design problems; the target parameters are held constant in each closed-loop MC simulation.
+
+ 96   2.2. Constrained optimization formulation
+ 97      The control design problem can be formulated as a constrained optimization problem. The objective is to minimize
+ 98   the discrepancy between the stationary PDF p(x, θ) of the controlled system and the target PDF ptarget (x, θ). Following
+ 99   the performance index formulations in [8, 16], we define the cost functional as the L2 distance between the actual and
+100   target PDFs:                                    ∫︂
+                                                                                          2
+                                             J [p; θ] =        [p(x, θ) − ptarget (x, θ)] dx.                              (7)
+                                                          Rn
+
+101      For a prescribed feedback control u that admits a suitable stationary density, let p denote a corresponding stationary
+102   PDF; uniqueness is not assumed. Minimizing J [p; θ] over admissible density–control pairs seeks to reduce the stationary
+103   PDF discrepancy in the L2 sense. This objective contains no control-energy term, input-amplitude penalty, or transient-
+104   response cost, so optimality refers only to the stated stationary density-matching objective and does not imply optimal
+105   overall control performance. The finite-domain objective in Eq.(9a) is its numerical counterpart. The stationary
+106   density-matching design problem over θ ∈ Ωθ is formulated as:
+
+                                                     min       J [p; θ],     ∀ θ ∈ Ωθ ,                                   (8a)
+                                                    u(x,θ)
+
+                                                      s.t.     L[p, u; θ] = 0,                                            (8b)
+                                                               p(x, θ) ≥ 0,                                               (8c)
+                                                                     lim   p(x, θ) = 0,                                   (8d)
+                                                                |x|→+∞
+                                                                ∫︂
+                                                                      p(x, θ) dx = 1.                                     (8e)
+                                                                 Rn
+
+107       Because the same stationary target PDF may be induced by more than one feedback control, the inverse control
+108   problem is not necessarily unique. The numerical result should be interpreted as an approximate density-matching
+109   feedback control obtained under the adopted neural-network parameterization and optimization procedure, rather than
+110   as a certified globally optimal control.
+
+111   2.3. Finite-domain approximation
+112      The boundary condition Eq.(8d) and normalization condition Eq.(8e) are defined over the infinite domain Rn , which
+113   poses computational challenges. Following standard practice in numerical methods for the FPK equation [26, 33], we
+114   approximate the problem on a finite computational domain Ωx ⊂ Rn that is chosen to be sufficiently large to capture the
+115   bulk of the probability mass. The boundary condition Eq.(8d) is then replaced by a homogeneous Dirichlet condition
+116   on the boundary ∂Ωx .
+
+
+
+
+                                                                       4
+117      The approximated constrained optimization problem becomes:
+                                              ∫︂
+                                                                            2
+                                   min J =        [p(x, θ) − ptarget (x, θ)] dx,         ∀ θ ∈ Ωθ ,                       (9a)
+                                     u(x,θ)           Ωx
+
+                                         s.t.   L[p, u; θ] = 0,     (x, θ) ∈ Ωx × Ωθ ,                                    (9b)
+                                                p(x, θ) ≥ 0,      (x, θ) ∈ Ωx × Ωθ ,                                      (9c)
+                                                p(x, θ) = 0, (x, θ) ∈ ∂Ωx × Ωθ ,                                          (9d)
+                                                ∫︂
+                                                     p(x, θ) dx = 1, θ ∈ Ωθ .                                             (9e)
+                                                 Ωx
+
+118   Remark 1. The optimization problem Eq.(9) seeks a control mapping u(x, θ) over the prescribed target-parameter
+119   range. Its neural approximation is trained jointly across sampled parameter values, rather than separately for each
+120   fixed target.
+
+121   Remark 2. The non-negativity of the learned PDF is imposed for all three training strategies through the exponential
+122   output transformation of the PDF network. The soft, penalty, and barrier formulations considered in Section 3 therefore
+123   differ in how the FPK residual is treated: the soft formulation uses a fixed residual weight, the penalty formulation
+124   progressively increases the residual weight, and the barrier formulation combines an auxiliary relation with a clipped
+125   logarithmic term. The barrier term is unrelated to the non-negativity of the PDF.
+
+
+126   3. The physics-informed neural network framework
+
+127       In this section, we present a physics-informed neural network (PINN) framework to solve the constrained optimiza-
+128   tion problem Eq.(9). The key idea is to parameterize both the stationary PDF p(x, θ) and the control force u(x, θ)
+129   using deep neural networks, and to train these networks by minimizing a loss function that encodes the objective
+130   Eq.(9a) and the constraints Eq.(9b)–Eq.(9e). The original control problem is formulated as a constrained optimiza-
+131   tion problem. In the PINN implementation, we solve a sampled unconstrained surrogate in which the FPK equation,
+132   boundary condition, and normalization condition are incorporated through residual-based loss terms. Therefore, the
+133   learned solution should be interpreted as an approximate solution under the adopted neural-network parameterization
+134   and sampling strategy.
+
+135   3.1. Neural network architecture
+136       The prescribed target PDF ptarget (x, θ) specifies the desired distribution, whereas the stationary PDF p(x, θ)
+137   represents the response induced by the feedback control. These two densities need not coincide, since an arbitrary
+138   target may not be exactly attainable under the given dynamics and control structure. We therefore approximate the
+139   response PDF and the feedback control with separate networks and optimize them jointly under the tracking objective
+140   and the FPK, boundary, and normalization constraints. This formulation allows the learned response to balance
+141   target tracking and dynamical consistency without assuming exact target attainability. For an analytically specified
+142   attainable target, fixing the PDF and solving only for the control is also a valid alternative. We do not claim that
+143   the two-network formulation is universally more accurate or computationally preferable. Moreover, small sampled loss
+144   values alone do not establish that the learned PDF equals the stationary PDF induced by the learned control; this
+145   consistency is further assessed through closed-loop MC simulations under the simulated initial conditions and numerical
+146   settings. The validation tasks and their scope are summarized in Section 4.
+147       To address the parametric control problem, we employ two fully connected deep neural networks. The first network,
+148   denoted by pNN (x, θ; ωp ), approximates the stationary PDF p(x, θ), where ωp represents the trainable parameters
+149   (weights and biases) of this network. The second network, denoted by uNN (x, θ; ωu ), approximates the control force
+150   u(x, θ), with trainable parameters ωu . Both networks take as input the concatenated vector [x, θ], enabling the
+151   networks to produce outputs that depend on both the state variables and the target-distribution parameters.
+152       By including the target-distribution parameters θ as network inputs, the trained models can be evaluated at different
+153   parameter values without separate training for each target. The displayed parameter sweeps assess this reuse.
+
+
+                                                                       5
+           Fig. 1: Schematic of the neural-network architecture used to approximate the stationary PDF and the feedback control force.
+
+
+
+154   3.2. Physics-informed loss function and training strategies
+155       The two neural networks pNN (x, θ; ωp ) and uNN (x, θ; ωu ) are coupled through the FPK operator. This coupling de-
+156   fines the proposed physics-informed neural-network model. The FPK operator can be evaluated as LNN (x, θ; ωp , ωu ) =
+157   L[pNN , uNN ; θ] using automatic differentiation.
+158       The training objective is to find the network parameters ωp∗ and ωu∗ that minimize a loss function encoding both
+159   the optimization objective and the constraints. The general form of the loss function is:
+
+                                                L(ωp , ωu ) = LJ + wf Lf + wb Lb + wn Ln ,                                               (10)
+
+160   where:
+
+161      • LJ measures the tracking error between the network output and the target PDF, corresponding to the objective
+162        Eq.(9a);
+
+163      • Lf enforces the FPK equation Eq.(9b);
+
+164      • Lb enforces the boundary condition Eq.(9d);
+
+165      • Ln enforces the normalization condition Eq.(9e);
+
+166      • wf , wb , wn are weight parameters that balance the different terms.
+
+167     Each loss component is computed using collocation points sampled from the appropriate domains. Specifically, the
+168   FPK residual loss is:
+                                                     Nf                           ⃓2
+                                                  1 ∑︂ ⃓⃓       f    f
+                                           Lf =          ⃓LNN (xi , θi ; ωp , ωu )⃓ ,                               (11)
+                                                                                  ⃓
+                                                 Nf i=1
+              {︂      }︂Nf
+169   where xfi , θif       are collocation points sampled from Ωx × Ωθ . Each state coordinate and target-distribution param-
+                        i=1
+170   eter is sampled independently from its prescribed interval using uniform random sampling; Latin hypercube sampling
+
+
+                                                                       6
+171   is not used. The boundary condition loss is:
+
+                                                               Nb
+                                                           1 ∑︂   ⃓pNN (xbi , θib ; ωp )⃓2 ,                             (12)
+                                                                  ⃓                     ⃓
+                                                    Lb =
+                                                           Nb i=1
+
+                     }︁Nb
+      where xbi , θib i=1 are sampled from ∂Ωx × Ωθ . For a rectangular two-dimensional domain, a random location is first
+             {︁
+172
+
+173   sampled uniformly with respect to the total boundary length and is then mapped to one of the four edges. This
+174   produces random boundary points that are uniform with respect to boundary arclength.
+175       The normalization condition Eq.(9e) and the tracking objective Eq.(9a) require integration over Ωx . These inte-
+176   grals are evaluated by composite Gauss–Legendre quadrature. Each state interval is partitioned into the prescribed
+177   subintervals. On every subinterval, one-dimensional Gauss–Legendre nodes and weights are generated after mapping
+178   the standard rule from [−1, 1] to that subinterval; the corresponding Jacobian factor is included in the mapped weights.
+179   The nodes and weights from all subintervals are then concatenated in each state direction before the tensor-product
+180   rule is formed. Thus, the reported numbers of nodes refer to the total numbers after concatenation, rather than to
+181   the numbers of nodes on a single subinterval. The two-dimensional examples use nine nodes in each state direction
+182   after concatenation, giving 92 = 81 spatial quadrature points. The four-dimensional Duffing example uses four nodes
+183   in each of the four state directions after concatenation, giving 44 = 256 spatial quadrature points. The same com-
+184   posite tensor-product construction is used for both the normalization and tracking integrals. Let {xni , Win }N i=1 and
+                                                                                                                        M
+
+
+185   {xi , Wi }i=1 denote the tensor-product quadrature nodes and weights used for normalization and tracking, respectively.
+         J    J Nm
+
+186   The normalization loss is approximated as:
+                                                      ⃓N
+                                                  Nn ⃓∑︂
+                                                                                        ⃓2
+                                                          M
+                                                1 ∑︂                                    ⃓
+                                          Ln =               n       n    n
+                                                            Wi pNN (xi , θj ; ωp ) − 1.0⃓ ,                              (13)
+                                                      ⃓                                 ⃓
+                                               Nn j=1 ⃓ i=1
+                                                      ⃓
+                                                                                        ⃓
+
+187   where {θjn }N
+                  j=1 are the target-parameter values used to evaluate the normalization condition. The tracking error loss
+                    n
+
+
+188   is:
+                                              NJ ∑︂
+                                                 Nm
+                                           1 ∑︂                                                      ]︁2
+                                                     WiJ pNN (xJi , θkJ ; ωp ) − ptarget (xJi , θkJ ) ,               (14)
+                                                         [︁
+                                    LJ =
+                                          NJ     i=1
+                                              k=1
+
+189
+                  k=1 are the target-parameter values used to evaluate the tracking objective. The averages over sampled
+      where {θkJ }NJ
+
+
+190   parameter values in Eq.(13) and Eq.(14) approximate the expectation over the prescribed target-parameter range.
+191      The network parameters are optimized using gradient-based methods. At each iteration k, the parameters are
+192   updated as:
+                                               ωpk+1 = ωpk − η(k)∇ωp L(ωpk , ωuk ),
+                                                                                                                    (15)
+                                               ωuk+1 = ωuk − η(k)∇ωu L(ωpk , ωuk ),
+193   where η(k) is the learning rate at iteration k, and the gradients are computed via automatic differentiation.
+194      For all three strategies, the PDF network uses an exponential output layer, so pNN (x, θ) > 0 is satisfied by
+195   construction. The strategies therefore differ primarily in how the FPK residual is incorporated into the optimization
+196   objective. In particular, the clipped logarithmic term in the barrier formulation acts on separately updated auxiliary
+197   variables, rather than on pNN . These formulations are detailed below.
+
+198   3.2.1. Soft constraint method
+199       The soft constraint method minimizes the total loss in Eq.(10) using fixed weights wf , wb , and wn throughout
+200   training. As in the other two strategies, pointwise positivity is enforced by the exponential output layer. The main
+201   advantage of the soft formulation is its simplicity and relatively low computational cost. Its performance, however,
+202   may be sensitive to the fixed balance among the tracking, FPK-residual, boundary, and normalization terms.
+
+
+
+
+                                                                       7
+203   3.2.2. Penalty method
+204       In the penalty formulation, the boundary and normalization weights are fixed, whereas the FPK-residual weight is
+205   updated adaptively during Adam training. Its loss function is
+
+                                         Lpenalty (ωp , ωu ) = LJ + ρf (k)Lf + wb Lb + wn Ln .                             (16)
+
+206      Here ρf (k) denotes the adaptive FPK-residual penalty parameter, corresponding to lamda in the implementation.
+207   During Adam training, the network parameters are updated to minimize Lpenalty , whereas the penalty parameter is
+208   updated by supplying Adam with the gradient of the negative loss,
+                                                                      ⃓
+                                                  k    ∂(−Lpenalty ) ⃓⃓     k
+                                                gρ =
+                                                          ∂ρf         ⃓ = −Lf .
+                                                                        k
+
+209        Thus, the penalty-parameter update performs Adam-based gradient ascent on the original loss with respect to
+210   ρf , adaptively increasing the emphasis on the FPK residual. The boundary and normalization weights remain fixed.
+211   Positivity is imposed by the exponential PDF output.
+
+212   3.2.3. Barrier method
+213       The strategy referred to here as the barrier method combines an auxiliary relation with a clipped logarithmic term.
+214   At each selected training point, let ri denote the signed FPK residual:
+
+                                               ri (ωp , ωu ) = LNN xbar   bar
+                                                                                                                           (17)
+                                                                  (︁                 )︁
+                                                                     i , θi ; ωp , ωu .
+
+
+215      The auxiliary variable si is updated separately from the network parameters and projected after its trial update
+216   according to
+                                          si ← max strial                                                            (18)
+                                                    {︁                   }︁
+                                                       i  , ε − ri , smin , smin > 0.
+
+217       Here ε is the prescribed reference value in the auxiliary relation, and smin is a problem-dependent positive numerical
+218   floor. During Adam training, the objective is
+
+                                                      Nbar
+                                                      ∑︂                          Nbar
+                                                                                  ∑︂
+                                 Lbarrier = Lmain +          λi (ri + si − ε)−µ          log(max{si , smin }) .            (19)
+                                                      i=1                         i=1
+
+219       Here Lmain denotes the main training loss, λi is the multiplier associated with the auxiliary relation, and µ > 0
+220   is the logarithmic parameter. The clipped logarithmic term acts on si , while the projection guarantees its positive
+221   lower bound and keeps the logarithmic evaluation well defined. The multiplier term connects si to the signed residual
+222   through ri + si − ε.
+223       During Adam training, the logarithmic parameter is updated by a multiplicative decay with a positive lower bound,
+
+                                       µk+1 = max{βk µk , µmin },         0 < βk < 1,         µmin > 0,
+
+224   where βk is the decay factor used at update k and µmin is the prescribed lower bound. This rule corresponds to
+225   update_mu in the implementation.
+226       For comparison, the three strategies use the same neural-network architectures, numerical precision, numbers and
+227   sampling rules of the collocation and boundary points, quadrature construction, optimizers, number of Adam epochs,
+228   and L-BFGS iteration limit. The common training configuration is summarized in Table 1. The differences are restricted
+229   to the strategy-specific treatment of the FPK residual: a fixed weight is used in the soft formulation, an iteration-
+230   dependent residual weight is used in the penalty formulation, and an auxiliary relation and a clipped logarithmic term
+231   are used during Adam training in the barrier formulation.
+
+
+
+
+                                                                      8
+232   4. Numerical examples
+
+233       Unless otherwise stated, all numerical examples use the training configuration summarized in Table 1. The imple-
+234   mentation uses double precision and a two-stage optimization strategy, in which Adam is first employed for stable initial
+235   training and L-BFGS is then used for further refinement, with a maximum of 5000 iterations. For every parameterized
+236   target PDF, the normalization constant is evaluated at each value of ω. For the second Duffing target, the analytical
+237   constant given below normalizes the density over R4 . The finite-domain normalization used for MC error comparisons
+238   is specified in Eq.(20).
+239       The numerical results address three complementary tasks: comparison with a selected analytical control, approx-
+240   imation of learned PDFs at displayed state and parameter values, and closed-loop response assessment by long-time
+241   MC simulation. The first task is used for the first Single-degree-of-freedom (SDOF) target; the second uses point-
+242   wise absolute PDF errors and cross-sectional profiles; the third uses joint PDFs for the two-dimensional systems and
+243   two-dimensional marginals for the Duffing system. In each MC figure, the upper row shows estimated densities and
+244   the lower row shows pointwise absolute errors and integrated L1 errors. For the latter, the target and MC-estimated
+245   densities are normalized over the same comparison domain Ω and denoted by pt,Ω and pMC,Ω . The reported error is
+246   defined by                                      ∫︂
+                                                      E1 =         |pt,Ω (x) − pMC,Ω (x)| dx.                                                    (20)
+                                                               Ω
+
+247       Here, Ω = Ωx for the two-dimensional joint-PDF comparisons; for the Duffing system, Ω is the corresponding
+248   two-dimensional marginal domain. In the grid-based implementation, the absolute density difference in each bin is
+249   weighted by the associated cell area. Thus, the reported L1 values are density-integral errors evaluated using the same
+250   domain and normalization convention for the target and MC PDFs.
+251       The pointwise error plots use the absolute density difference e = |pNN − ptarget |. For e > 0, the logarithmic error
+252   panels display log10 e; this logarithm is undefined at e = 0. Very low values or sharp downward minima can reflect
+253   intersections between predicted and target density curves. The absolute-error plots and the displayed PDF cross-
+254   sectional profiles do not, by themselves, quantify relative density errors, tail-probability errors, or errors in response
+255   variance.
+                                          Table 1: Training configuration used in the numerical examples.
+
+         Item                                        Setting
+         Network type                                Parametric PINN consisting of two neural networks, pNN (net_pdf) and uNN (net_control),
+                                                     which are optimized jointly through the total physics-informed loss.
+         Data type                                   float64.
+         pNN (net_pdf) architecture                  Four hidden layers [128, 128, 128, 128] with tanh activation and an exponential output layer
+                                                     of dimension one.
+         uNN (net_control) architecture              Three hidden layers [64, 64, 64] with tanh activation and a linear output layer of dimension
+                                                     du . Here, du = 1 for the SDOF and levitation examples and du = 2 for the coupled Duffing
+                                                     example.
+         Interior residual points                    10000 points. Each state coordinate and target-distribution parameter is sampled inde-
+                                                     pendently from its prescribed interval using uniform random sampling; Latin hypercube
+                                                     sampling is not used.
+         Boundary points                             1000 points. For a rectangular two-dimensional domain, a boundary location is sampled
+                                                     uniformly with respect to the total perimeter and then mapped to one of the four edges.
+         Normalization quadrature                    Composite Gauss–Legendre quadrature is used. Nodes and mapped weights are generated
+                                                     on each prescribed subinterval, concatenated in each state direction, and then combined by a
+                                                     tensor-product grid. The reported node counts are the totals after concatenation: nine nodes
+                                                     per state direction for the two-dimensional examples, giving 92 = 81 spatial points; and four
+                                                     nodes per state direction for the four-dimensional Duffing example, giving 44 = 256 spatial
+                                                     points. With 10 parameter points, these rules give 810 and 2560 evaluations, respectively.
+         Objective-function quadrature               The same composite tensor-product Gauss–Legendre construction is used. The two-
+                                                     dimensional examples use 81 spatial points and 20 parameter points, giving 1620 evaluations;
+                                                     the four-dimensional Duffing example uses 256 spatial points and 20 parameter points, giv-
+                                                     ing 5120 evaluations.
+         Batch size                                  10000, corresponding to full-batch training for the residual points.
+         First-stage optimizer                       Adam.
+         Adam learning rate                          Piecewise learning rate with initial value 5 × 10−4 ; the decay boundary is 5000, and the
+                                                     corresponding values are [5 × 10−4 , 3 × 10−4 ].
+         Adam epochs                                 10000 epochs.
+         Second-stage optimizer                      L-BFGS, with a maximum of 5000 iterations.
+
+
+
+
+                                                                          9
+256   4.1. SDOF system
+257      Consider the following single-degree-of-freedom example
+
+                                            ẋ1 = x2 ,
+                                                                                                                          (21)
+                                            ẋ2 = −x1 + (α − βx21 )x2 + u + ξ(t) + x1 ζ(t),
+
+258    where ξ(t) and ζ(t) are two independent Gaussian white-noise processes with noise intensities 2D and 2S, respectively,
+259   and u is the control force. The system parameters used in this example are α = −0.08, β = 0.1, D = 0.001, and
+260   S = 0.004.
+261      The corresponding reduced FPK equation is
+
+                                        ∂                      ∂                     1 ∂2
+                                 0=−       [a1 p(x1 , x2 )] −     [a2 p(x1 , x2 )] +        [b22 p(x1 , x2 )] ,           (22)
+                                       ∂x1                    ∂x2                    2 ∂x22
+
+262   where
+                                               a1 = x2 ,    a2 = −x1 + (α − βx21 )x2 + u,
+                                                                                                                          (23)
+                                              b22 = 2D + 2Sx21 ,      b11 = b12 = b21 = 0.
+
+263   4.1.1. The first target PDF
+264       The specified target stationary probability density function is
+
+                                    ptarget (x1 , x2 ) = C(ω) exp a(x22 + ω 2 x21 ) − b(x22 + ω 2 x21 )2 ,                (24)
+                                                                 [︁                                     ]︁
+
+
+265   where a = 1.0 and b = 1.5. The computations for this target are performed on Ωx = [−1.2, 1.2] × [−1.5, 1.5], with the
+266   target-distribution parameter sampled over ω ∈ [1.1, 1.3].
+267      For the first SDOF target, an explicitly selected analytical reference control is used as a pointwise benchmark. For
+268   a = 1.0 and b = 1.5, the analytical feedback control is given by
+
+                uexact (x1 , x2 ; ω) = (1 − ω 2 )x1 + 2D − α − 6Sω 2 x41 x2 + β − 6Dω 2 + 2S x21 x2 − 6 D + Sx21 x32 .    (25)
+                                                     (︁                 )︁   (︁             )︁         (︁       )︁
+
+
+269      This selected analytical expression provides a pointwise benchmark for evaluating the learned control force; it is
+270   not supplied as an input to training. A difference from a selected reference law does not, by itself, imply failure to
+271   induce the target density when alternative controls are admissible.
+272      Fig. 2 compares the learned controls with the selected analytical reference at ω = 1.10, 1.14, and 1.18. This provides
+273   a pointwise control-reconstruction benchmark complementary to the subsequent density comparisons; disagreement
+274   with this selected law alone does not determine the quality of an induced density when controls are non-unique.
+275      Fig. 3 shows that the learned PDFs reproduce the low-density interior and surrounding high-probability ring of the
+276   annular target. The error maps identify deviations along the ridge and its transition regions.
+277      Fig. 4 presents representative one-dimensional cuts through the annular target together with the corresponding
+278   pointwise absolute errors. These plots compare agreement with the target density curve at the displayed coordinates.
+279   Smaller errors on these cuts indicate closer pointwise agreement in absolute terms.
+280      Fig. 5 evaluates one trained barrier density network at the six parameter values listed in the caption. Errors are
+281   concentrated near the annular ridge and its transitions.
+282      Fig. 6 assesses whether the learned controls recover the annular concentration in simulated responses. The reported
+283   L1 errors are 0.119, 0.078, and 0.0693 for the soft, penalty, and barrier formulations, respectively.
+
+                                   Table 2: Computational time of the three constraint-handling methods.
+
+
+                            Method           Soft method            Penalty method               Barrier method
+                            Time(s)            12019.44                   15738.33                   25746.60
+
+
+
+                                                                     10
+                  (a1 ) Soft method-ω = 1.10          (b1 ) Penalty method-ω = 1.10            (c1 ) Barrier method-ω = 1.10
+                                                                                                                                0.12
+              1                                        1                                       1
+                                                                                                                                0.09
+            0.5                                      0.5                                     0.5
+      x2
+
+
+
+
+                                               x2
+
+
+
+
+                                                                                       x2
+              0                                        0                                       0                                0.06
+           -0.5                                     -0.5                                    -0.5
+                                                                                                                                0.03
+             -1                                       -1                                      -1
+                                                                                                                                0
+                   -1   -0.5   0    0.5   1                -1   -0.5   0     0.5   1               -1   -0.5   0    0.5   1
+                               x1                                      x1                                      x1
+                  (a2 ) Soft method-ω = 1.14          (b2 ) Penalty method-ω = 1.14            (c2 ) Barrier method-ω = 1.14
+                                                                                                                                0.12
+              1                                        1                                       1
+                                                                                                                                0.09
+            0.5                                      0.5                                     0.5
+      x2
+
+
+
+
+                                               x2
+
+
+
+
+                                                                                       x2
+              0                                        0                                       0                                0.06
+           -0.5                                     -0.5                                    -0.5
+                                                                                                                                0.03
+             -1                                       -1                                      -1
+                                                                                                                                0
+                   -1   -0.5   0    0.5   1                -1   -0.5   0     0.5   1               -1   -0.5   0    0.5   1
+                               x1                                      x1                                      x1
+                  (a3 ) Soft method-ω = 1.18          (b3 ) Penalty method-ω = 1.18            (c3 ) Barrier method-ω = 1.18
+                                                                                                                                0.12
+              1                                        1                                       1
+                                                                                                                                0.09
+            0.5                                      0.5                                     0.5
+      x2
+
+
+
+
+                                               x2
+
+
+
+
+                                                                                       x2
+              0                                        0                                       0                                0.06
+           -0.5                                     -0.5                                    -0.5
+                                                                                                                                0.03
+             -1                                       -1                                      -1
+                                                                                                                                0
+                   -1   -0.5   0    0.5   1                -1   -0.5   0     0.5   1               -1   -0.5   0    0.5   1
+                               x1                                      x1                                      x1
+
+Fig. 2: Pointwise absolute errors between the learned control forces and the analytical reference control for the first SDOF target PDF at
+ω = 1.10, 1.14, and 1.18.
+
+
+
+
+             Fig. 3: Comparison of learned stationary PDFs and their pointwise absolute errors for the first SDOF target PDF.
+
+
+
+
+                                                                        11
+                                   (a1 ) 1D Cross-section Comparison at x1 = 1.0                                             (b1 ) 1D Cross-section Comparison at x2 = 1.2
+                                 0.12                                       Target PDF                                     0.10                                         Target PDF
+                                                                            Barrier method                                                                              Barrier method
+                                                                            Penalty method                                                                              Penalty method
+                                 0.09                                       Soft method                                                                                 Soft method
+
+
+
+
+                                                                                                        p(x1 , x2 = 1.2)
+                                                                                                                           0.08
+             p(x1 = 1.0, x2 )
+
+
+
+                                 0.06                                                                                      0.05
+
+
+                                 0.03                                                                                      0.03
+
+
+                                 0.00                                                                                      0.00
+                                    -1.5   -1       -0.5    0         0.5       1            1.5                                  -1     -0.5      0              0.5            1
+                                                            x2                                                                                     x1
+
+                                                (a2 ) Log-error at x1 = 1.0                                                            (b2 ) Log-error at x2 = 1.2
+                                 -2.0                                                                                      -2.0
+
+
+
+
+                                                                                                        log10 (|Error|)
+               log10 (|Error|)
+
+
+
+
+                                 -3.1                                                                                      -3.1
+
+
+                                 -4.3                                                                                      -4.3
+
+                                                           Barrier Error                                                                          Barrier Error
+                                 -5.4                      Penalty Error                                                   -5.4                   Penalty Error
+                                                           Soft Error                                                                             Soft Error
+
+                                    -1.5   -1       -0.5    0         0.5       1            1.5                                  -1     -0.5      0              0.5            1
+                                                            x2                                                                                     x1
+
+Fig. 4: Cross-sectional profiles and pointwise absolute PDF errors along selected cross-sections for the first SDOF target PDF. Sharp minima
+in logarithmic error curves may occur at intersections of the predicted and target profiles.
+
+
+
+
+Fig. 5: Pointwise absolute PDF errors from the same trained barrier density network for the first SDOF target at ω =
+1.10, 1.14, 1.18, 1.22, 1.26, 1.30, without parameter-specific retraining. These evaluation values lie within the training parameter range
+[1.1, 1.3], including its endpoints; training residual parameters are sampled uniformly rather than restricted to this evaluation grid.
+
+
+
+
+                                                                                                   12
+      Fig. 6: MC validation of the learned feedback controls for the first SDOF target PDF at ω = 1.18. The upper row shows the MC-estimated
+      stationary PDFs for the soft constraint, penalty, and barrier formulations, and the lower row shows the corresponding pointwise absolute
+      errors relative to the prescribed target PDF, with the L1 errors reported in each panel.
+
+
+
+284      Table 2 reports the wall-clock training time for the three methods in the first SDOF benchmark. The barrier
+285   method requires the largest computational cost, the penalty method has an intermediate cost, and the soft constraint
+286   method is the least expensive.
+
+287   4.1.2. The second target PDF
+288       The specified target stationary probability density function is
+                                                                [︃                                ]︃
+                                                                                     8
+                                      ptarget (x1 , x2 ) = C exp x22 − 4x42 − (2x21 + x31 + 2x41 ) .                                     (26)
+                                                                                     3
+
+289      The computations for this fixed target PDF are performed on Ωx = [−1.2, 1.2] × [−1.5, 1.5]. This target does not
+290   involve a varying target-distribution parameter.
+291      Fig. 7 examines the second SDOF target, whose cubic terms create an asymmetric non-Gaussian density. All three
+292   methods locate the dominant concentration region, while the pointwise absolute PDF error maps show differences in
+293   agreement with the target over the plotted domain.
+294      Fig. 8 presents representative one-dimensional cross-sections for the second SDOF target together with the corre-
+295   sponding pointwise absolute errors. The displayed profiles allow comparison of the asymmetric peak and the decay on
+296   both sides of the target density. Any smaller pointwise absolute errors are specific to the displayed coordinates and do
+297   not imply improved relative accuracy in low-probability regions.
+298      Fig. 9 complements the network-density reconstruction by showing the dominant asymmetric concentration in the
+299   simulated responses. The reported L1 errors are 0.195, 0.0942, and 0.0891 for the soft, penalty, and barrier formulations,
+300   respectively.
+
+301   4.2. Stochastic levitation system
+302      This example introduces a nonlinear physical input: the total current enters the electromagnetic force quadratically
+303   and requires selection of a physically relevant current branch. The two targets are assessed on their stated finite
+
+
+
+                                                                        13
+        Fig. 7: Comparison of learned stationary PDFs and pointwise absolute errors for the second SDOF target PDF.
+
+
+
+
+           0.48                         Target PDF         Barrier method              0.76                   Target PDF         Barrier method
+                                        Penalty method     Soft method                                        Penalty method     Soft method
+
+
+
+           0.36                                                                        0.57
+
+
+
+           0.24                                                                        0.38
+
+
+
+
+           0.12                                                                        0.19
+
+
+
+
+           0.00                                                                        0.00
+              -1.5   -1     -0.5    0            0.5       1                1.5               -1   -0.5   0                0.5           1
+
+
+
+
+           -1.0                            Barrier Error    Penalty Error              -1.0                      Barrier Error    Penalty Error
+                                           Soft Error                                                            Soft Error
+
+
+
+
+           -2.3                                                                        -2.3
+
+
+
+           -3.5                                                                        -3.5
+
+
+
+           -4.8                                                                        -4.8
+
+
+
+           -6.0                                                                        -6.0
+              -1.5   -1     -0.5    0            0.5       1                1.5               -1   -0.5   0                0.5           1
+
+
+
+Fig. 8: Cross-sectional profiles and pointwise absolute PDF errors along selected cross-sections for the second SDOF target PDF.
+
+
+
+
+                                                                                  14
+      Fig. 9: MC validation of the learned feedback controls for the second SDOF target PDF. The upper row shows the MC-estimated stationary
+      PDFs for the soft constraint, penalty, and barrier formulations, and the lower row shows the corresponding pointwise absolute errors relative
+      to the prescribed asymmetric target PDF, with the L1 errors reported in each panel.
+
+
+
+304   computational domains. Consider the stochastic levitation system. The single-point electromagnetic levitation system
+305   is modeled as
+                             Ẋ1 = X2 ,
+                                   g     µ0 N 2 S kp z02 X1 + kv z02 X2 + u(X1 , X2 ) + i0
+                                                 [︃                                        ]︃2
+                                                                                                 ζ(t)                  (27)
+                             Ẋ2 = 2 −         2                   2                           +    2 ,
+                                   z0     4mz0                   z0 X1 + z0                      mz0
+306   where ζ(t) is a zero-mean Gaussian white-noise process satisfying E[ζ(t)ζ(s)] = DG δ(t − s), with DG denoting the noise
+307   intensity.
+308       The corresponding stationary FPK equation is
+                                       {︄[︄                                                        )︃2 ]︄ }︄
+                                                 µ0 N 2 S kp z02 x1 + kv z02 x2 + u(x1 , x2 ) + i0            DG ∂ 2 p
+                                                         (︃
+                         ∂(x2 p)    ∂       g
+                  0=−            −           2 −       2                  2                              p +              . (28)
+                           ∂x1     ∂x2      z0    4mz0                  z0 x1 + z0                           2m2 z04 ∂x22
+
+309      Due to the significant differences in the orders of magnitude of the system parameters, directly solving Eq.(28) is
+310   numerically challenging [19, 46]. To reduce this scale disparity, Eq.(28) is first multiplied by z02 , and the derivative
+311   with respect to x2 is then expanded, yielding
+                                    [︂                              ]︂
+                                             2     ∂
+                                 2
+                            µ0 N S     k v z0  +  ∂x2 u(x  1 , x 2 )   [︁ 2
+                                                                         kp z0 x1 + kv z02 x2 + u(x1 , x2 ) + i0 p
+                                                                                                                      ]︁
+                      0=2         2                        2
+                             4mz0             (z0 x1 + 1)
+                                                                                                                                        (29)
+                                        [︄                                                                    )︃2 ]︄
+                                                       2             2             2
+                                                                                                                            DG ∂ 2 p
+                                                           (︃
+                                ∂p               µ 0 N   S     k p z 0 x 1 + k v z0  x 2 + u(x 1 , x2 ) + i 0        ∂p
+                       − z02 x2     − g−                2                                                                +      2   2 .
+                                ∂x1               4mz0                           z0 x1 + 1                           ∂x2   2m2 z0 ∂x2
+
+
+
+
+                                                                           15
+312   4.2.1. The first target PDF
+313       The first scenario considers control over the vibration amplitude, which is characterized here through the variance
+314   of the levitation gap [19, 20]. The target PDF can be designed as
+                                                                                        {︃               }︃
+                                                                                        1 (︁ 2 2    2
+                                                                                                                                     (30)
+                                                                                                      )︁
+                                 p1 (x1 , x2 ) = C1 (ω) exp[−ϕ(x1 , x2 )] = C1 (ω) exp − ω Q1 x1 + x2 ,
+                                                                                        2
+
+315   where C1 (ω) is the parameter-dependent normalization constant, ω is an adjustable target-distribution parameter, and
+316   Q21 = 500. The parameter ω controls the overall concentration of the target density, while Q1 determines the relative
+317   scaling between the two state directions. The computations for this target are performed on Ωx = [−0.2, 0.2] × [−4, 4],
+318   with ω ∈ [4.8, 5.3].
+                                         Table 3: Physical parameters of the stochastic levitation model.
+
+
+                     N       m           µ0            S           i0        z0          kp            kv         g       DG
+                    450      700     4π × 10−7       0.024     21.2075       0.01    4823.043       76.4208      9.81     1.0
+
+319      Fig. 10 illustrates the first levitation case, where the target density is designed to regulate the response variance of
+320   the levitation gap. The predicted PDFs reproduce the narrow concentration band imposed by the target distribution,
+321   while the pointwise absolute PDF error maps show differences in density agreement over the plotted domain.
+
+
+
+
+                 Fig. 10: Comparison of learned stationary PDFs and pointwise absolute errors for the first levitation target PDF.
+
+
+322       Fig. 11 compares representative PDF cross-sectional profiles of the narrow target density and the corresponding
+323   pointwise absolute PDF errors. These sections assess agreement with the target density curve at the displayed coordi-
+324   nates, rather than the variance of the response. The Gaussian target density is strictly positive at finite coordinates,
+325   although its values away from the peak can be extremely small. Small absolute errors there do not establish accurate
+326   relative errors or tail probabilities. Sharp minima in logarithmic error curves can result from intersections between
+327   predicted and target curves.
+328       Fig. 12 evaluates one trained barrier density network at the six parameter values listed in the caption. These plots
+329   assess density approximation at displayed values, not interval-wide closed-loop control accuracy or the parameter-scan
+330   performance of all three strategies.
+331       Fig. 13 reports closed-loop density agreement for the first levitation target on the common normalized comparison
+332   domain. The L1 errors are 0.43, 0.282, and 0.11 for the soft, penalty, and barrier formulations, respectively.
+
+
+                                                                        16
+                                                                                            4.0
+                                                             Target PDF                                                                   Target PDF
+                 0.25                                        Barrier method                                                               Barrier method
+                                                             Penalty method                 3.0                                           Penalty method
+                 0.20                                        Soft method                                                                  Soft method
+
+                 0.15                                                                       2.0
+                 0.10
+                                                                                            1.0
+                 0.05
+                 0.00                                                                       0.0
+                    -4.00   -2.67   -1.33    0.00    1.33         2.67        4.00           -0.20      -0.13    -0.07   0.00     0.07         0.13        0.20
+
+
+                  1.0                                                                       1.0
+
+                 -1.3                                                                      -1.3
+
+                 -3.5                                                                      -3.5
+
+                 -5.8                        Barrier Error                                 -5.8                           Barrier Error
+                                             Penalty Error                                                                Penalty Error
+                                             Soft Error                                                                   Soft Error
+                 -8.0                                                                      -8.0
+                    -4.00   -2.67   -1.33    0.00    1.33         2.67        4.00            -0.20     -0.13    -0.07   0.00     0.07         0.13        0.20
+
+
+Fig. 11: Cross-sectional profiles and pointwise absolute PDF errors for the first levitation target PDF. Sharp minima in logarithmic error
+curves may occur at intersections of the predicted and target profiles.
+
+
+
+
+          4                                            4                                                        4                                                 0.17
+
+          2                                            2                                                        2                                                 0.13
+
+          0                                            0                                                        0                                                 0.08
+
+         -2                                           -2                                                        -2                                                0.04
+
+         -4                                           -4                                                        -4                                                0.00
+          -0.2    -0.1      0       0.1     0.2        -0.2         -0.1         0        0.1     0.2            -0.2    -0.1      0          0.1      0.2
+
+
+          4                                            4                                                        4                                                 0.17
+
+          2                                            2                                                        2                                                 0.13
+
+          0                                            0                                                        0                                                 0.08
+
+         -2                                           -2                                                        -2                                                0.04
+
+         -4                                           -4                                                        -4                                                0.00
+          -0.2    -0.1      0       0.1     0.2        -0.2         -0.1         0        0.1     0.2            -0.2    -0.1      0          0.1      0.2
+
+
+Fig. 12: Parameter sweep of the stationary-density approximation obtained using the barrier method for the first target distribution of the
+electromagnetic levitation system. The same trained density network is evaluated at ω = 4.8, 4.9, . . . , 5.3 without retraining.
+
+
+
+
+                                                                                     17
+      Fig. 13: MC validation of the learned feedback controls for the first levitation target PDF at ω = 5.0. The upper row shows the MC-
+      estimated stationary PDFs for the soft constraint, penalty, and barrier formulations, and the lower row shows the corresponding pointwise
+      absolute errors relative to the prescribed target PDF, with the L1 errors reported in each panel.
+
+
+
+333   4.2.2. The second target PDF
+334       Based on the first scenario, this section further considers controlling the mean levitation gap. Specifically, the
+335   desired mean position of the levitation gap is shifted, and the target PDF is assigned a nonzero mean. The second
+336   target PDF is defined as
+                                                                          {︃                                 }︃
+                                                                             1 [︁ 2         2            2
+                                                                                                                        (31)
+                                                                                                           ]︁
+                     p2 (x1 , x2 ) = C2 (ω) exp[−ϕ(x1 , x2 )] = C2 (ω) exp − ω Q2 (x1 − µ1 ) + (x2 − µ2 )       ,
+                                                                             2
+
+337   where C2 (ω) is the parameter-dependent normalization constant, and µ1 and µ2 determine the prescribed mean values
+338   in the x1 and x2 directions, respectively. The parameter ω is varied over the prescribed range and controls the overall
+339   concentration of the target density, whereas Q2 is fixed and determines the relative scaling between the two state
+340   directions. The computations for this target are performed on Ωx = [1.98, 2.02] × [−1, 1], with ω ∈ [9.8, 10.3]. In this
+341   example, Q22 = 8000, µ1 = 2.0, and µ2 = 0.0.
+342       Fig. 14 focuses on the second levitation target, in which the desired mean levitation gap is shifted away from the
+343   origin. The three methods place the probability mass around the prescribed offset, but the pointwise PDF error maps
+344   reveal different levels of accuracy around the shifted peak. The penalty strategy improves over the soft constraint
+345   baseline, while the barrier method most effectively localizes the remaining error near the peak region.
+346       Fig. 15 compares cross-sectional profiles and pointwise absolute PDF errors for the shifted levitation target. On
+347   the displayed sections, the barrier method more closely tracks the peak height and location.
+348       Fig. 16 shows simulated response concentration near x1 = 2.0. The reported L1 errors are 0.0952, 0.097, and 0.086
+349   for the soft, penalty, and barrier formulations, respectively.
+
+350   4.3. Two-degree-of-freedom (2-DOF) Duffing system
+351       This example extends the approximation to a four-dimensional state space. The network-density plots are fixed-
+352   coordinate slices, whereas the MC plots are two-dimensional marginals obtained from the simulated responses. Slices
+353   and marginals test different aspects of the density and do not by themselves verify the full four-dimensional joint
+354   distribution. Consider the coupled Duffing oscillator excited by Gaussian white noise. Using the state vector X =
+
+
+                                                                         18
+Fig. 14: Comparison of learned stationary PDFs and pointwise absolute errors for the second levitation target PDF.
+
+
+
+
+                                                                            6.40
+                     Target PDF                                                                                 Target PDF
+                     Barrier                                                                                    Barrier
+     1.50            Penalty
+                                                                            4.80
+                                                                                                                Penalty
+                     Soft                                                                                       Soft
+
+     1.13
+                                                                            3.20
+     0.75
+                                                                            1.60
+     0.38
+
+     0.00                                                                   0.00
+        -1.00    -0.67   -0.33    0.00   0.33     0.67          1.00           1.98   1.99            2.00   2.01            2.02
+
+
+      -0.7
+                                                                                      Barrier Error
+                                                                                      Penalty Error
+      -2.7                                                                            Soft Error
+                                                                            -0.2
+
+                                                                            -1.3
+      -4.8
+                                                                            -2.4
+      -6.8                                      Barrier Error
+                                                Penalty Error               -3.5
+                                                Soft Error
+      -8.8                                                                  -4.6
+         -1.00   -0.67   -0.33    0.00   0.33     0.67          1.00           1.98   1.99            2.00   2.01            2.02
+
+
+     Fig. 15: Cross-sectional profiles and pointwise absolute PDF errors for the second levitation target PDF.
+
+
+
+
+                                                                       19
+      Fig. 16: MC validation of the learned feedback controls for the second levitation target PDF at ω = 10.3. The upper row shows the MC-
+      estimated stationary PDFs for the soft constraint, penalty, and barrier formulations, and the lower row shows the corresponding pointwise
+      absolute errors relative to the prescribed shifted target PDF, with the L1 errors reported in each panel.
+
+
+
+355   (X1 , X2 , X3 , X4 )T , where X1 and X3 are displacement-type coordinates and X2 and X4 are the corresponding velocity-
+356   type coordinates, the equation of motion is written as
+
+                                             dX1 = X2 dt,
+                                                   (︃               )︃
+                                                            ∂H           √︁
+                                             dX2 = −β1 X2 −     − u1 dt + 2D1 dw1 (t),
+                                                            ∂X1
+                                                                                                                                          (32)
+                                             dX3 = X4 dt,
+                                                   (︃               )︃
+                                                            ∂H           √︁
+                                             dX4 = −β2 X4 −     − u2 dt + 2D2 dw2 (t),
+                                                            ∂X3
+
+357   where the potential function is
+
+                                                     A1 2 A2 2 α1 4 α2 4
+                                          H(X) =       X +  X +  X +  X + α3 X12 X32 .                                                    (33)
+                                                     2 1   2 3  4 1  4 3
+358       The parameters are A1 = −0.1, A2 = 0.1, α1 = α2 = 10, α3 = 0.001, β1 = β2 = 0.09, and D1 = D2 = 0.002. Here,
+359   βi are the linear damping coefficients, wi (t) are independent standard Wiener processes, and 2Di denote the noise
+360   intensities.
+
+361   4.3.1. The first target PDF
+362       The first target PDF is set as
+                                                                            [︃                             ]︃
+                                                                               1 (︁     )︁ 1 (︁ 2
+                                   ptarget (x1 , x2 , x3 , x4 ) = C0 (ω) exp − x21 + x22 −     x3 + ωx24 ,                                (34)
+                                                                                                        )︁
+                                                                               2           2
+
+363   where C0 (ω) is the parameter-dependent normalization constant and ω > 0. The parameter ω controls the spread of
+364   the target density along x4 . The computations are performed on Ωx = [−3, 3]4 , with ω ∈ [1.8, 2.3]. In the stationary-
+365   density comparisons below, x3 = x4 = 0 and the four-dimensional density is evaluated on the (x1 , x2 ) plane. The
+366   target slice is ptarget (x1 , x2 , 0, 0) = C0 (ω) exp[−(x21 + x22 )/2]. Thus, ω affects its amplitude through C0 (ω), while its
+367   Gaussian width along x1 and x2 remains unchanged.
+
+
+
+                                                                         20
+      Fig. 17: Learned four-dimensional stationary PDFs evaluated on the (x1 , x2 ) slice with x3 = x4 = 0 for the first Duffing target. The upper
+      row shows the soft constraint, penalty, and barrier predictions; the lower row shows their pointwise absolute errors relative to the target
+      slice.
+
+
+
+368      Fig. 17 assesses the centered Gaussian density on the slice x3 = x4 = 0. The displayed absolute errors are
+369   concentrated near the central peak; this comparison concerns a slice of the four-dimensional density.
+
+
+                       0.020                                                                0.020
+                                                                Target PDF                                                           Target PDF
+                                                                Barrier method                                                       Barrier method
+                       0.015                                    Penalty method              0.015                                    Penalty method
+                                                                Soft method                                                          Soft method
+
+
+                       0.010                                                                0.010
+
+                       0.005                                                                0.005
+
+                       0.000                                                                0.000
+                           -3.0    -2.0      -1.0   0.0   1.0       2.0          3.0            -3.0    -2.0      -1.0   0.0   1.0       2.0          3.0
+
+
+
+                                                                                             -3.5
+                        -4.0
+                                                                                             -4.3
+                        -4.8
+                                                                                             -5.0
+                        -5.5
+                                                                                             -5.8
+                        -6.3      Barrier method                                                       Barrier method
+                                  Penalty method                                                       Penalty method
+                                  Soft method                                                          Soft method
+                        -7.0                                                                 -6.5
+                           -3.0    -2.0      -1.0   0.0   1.0       2.0          3.0            -3.0    -2.0      -1.0   0.0   1.0       2.0          3.0
+
+
+      Fig. 18: One-dimensional profiles of the (x1 , x2 ) density slice with x3 = x4 = 0 for the first Duffing target. The left column varies x1 at
+      x2 = −1.4, and the right column varies x2 at x1 = −1.4. The upper panels compare the target and learned density values; the lower panels
+      show log10 of the pointwise absolute errors.
+
+
+370       Fig. 18 examines two off-center cuts of the same slice: p(x1 , −1.4, 0, 0) and p(−1.4, x2 , 0, 0). The learned profiles
+371   closely follow the target curves in both directions, including the peak near zero in the varying coordinate and the decay
+372   toward the tails. The logarithmic error curves reveal differences that are difficult to distinguish in the upper panels.
+
+
+                                                                                       21
+                  3                                      3                                      3                                     3.14
+                1.5                                    1.5                                    1.5                                     2.35
+                  0                                      0                                      0                                     1.57
+               -1.5                                   -1.5                                    -1.5                                    0.78
+                 -3                                     -3                                      -3                                    0.00
+                      -3   -1.5   0     1.5     3            -3   -1.5   0        1.5   3            -3   -1.5   0    1.5     3
+
+
+
+                  3                                      3                                      3                                     3.14
+
+                1.5                                    1.5                                    1.5                                     2.35
+                  0                                      0                                      0                                     1.57
+               -1.5                                   -1.5                                    -1.5                                    0.78
+                 -3                                     -3                                      -3                                    0.00
+                      -3   -1.5   0     1.5     3            -3   -1.5   0        1.5   3            -3   -1.5   0    1.5     3
+
+
+      Fig. 19: Pointwise absolute PDF errors from the same trained barrier density network for the first Duffing target on the slice x3 = x4 = 0
+      at ω = 1.80, 1.90, 2.00, 2.10, 2.20, 2.30. The evaluation values lie within the training parameter range [1.8, 2.3], including its endpoints.
+
+
+
+373       Fig. 19 evaluates one trained barrier density network at six displayed values in the training parameter range. Errors
+374   on the slice x3 = x4 = 0 are concentrated near the origin and remain of order 10−4 on the common scale.
+375       Fig. 20 presents the MC validation at ω = 1.8 using two-dimensional marginal PDFs of the controlled responses. All
+376   three methods reproduce the centered concentration in both coordinate planes. The (x1 , x2 ) marginal gives L1 errors
+377   of 0.1055, 0.1030, and 0.1026 for the soft constraint, penalty, and barrier formulations, respectively. The corresponding
+378   (x3 , x4 ) errors are 0.0756, 0.0806, and 0.0830. The barrier formulation has the lowest reported error in the first
+379   marginal, whereas the soft constraint formulation has the lowest error in the second. These marginal comparisons
+380   provide closed-loop statistical validation at the selected parameter value, without establishing a uniform ranking of the
+381   methods or verifying the complete four-dimensional joint density.
+
+382   4.3.2. The second target PDF
+                                                                                  (︃ 4
+                                                                                        x2   ωx23  x2
+                                                                                                      )︃
+                                                                                     x
+                                      ptarget (x1 , x2 , x3 , x4 ; ω) = C0 (ω) exp − 1 − 2 −      − 4 ,
+                                                                                      4  2    2     2
+                                                                             √                                                                (35)
+                                                                               2ω
+                                                             C0 (ω) =                 ,
+                                                                        Γ(1/4)(2π)3/2
+383   where Γ denotes the gamma function, C0 (ω) normalizes the target density over R4 , and ω > 0. The quartic term −x41 /4
+384   produces a non-Gaussian distribution in the x1 direction, whereas x2 , x3 , and x4 have Gaussian target distributions.
+385   The parameter ω controls the variance in the x3 direction, Var(X3 ) = 1/ω, while the full-space target variances in the
+386   x2 and x4 directions are both one. In the following stationary-equation comparisons, x1 and x2 are fixed at zero and the
+387   learned four-dimensional PDF is evaluated on the (x3 , x4 ) plane. The resulting target slice is ptarget (0, 0, x3 , x4 ; ω) =
+388   C0 (ω) exp[−(ωx23 + x24 )/2]; the quartic dependence on x1 is therefore not visible on this slice. The computations for
+389   this target are performed on Ωx = [−3, 3]4 , with ω ∈ [0.8, 1.3]. For the finite-domain MC error comparisons, the target
+390   and MC-estimated densities follow the common normalization convention in Eq.(20).
+391       An analytical feedback pair can be constructed for this target. With the negative control signs in Eq.(32), one such
+
+
+
+
+                                                                             22
+      Fig. 20: MC validation of the learned feedback controls for the first Duffing target PDF at ω = 1.8. The first two rows show the MC-
+      estimated marginal PDFs in the (x1 , x2 ) plane and their corresponding pointwise absolute errors, while the last two rows show the results
+      in the (x3 , x4 ) plane. The L1 errors are reported in the corresponding error panels.
+
+
+
+392   pair is
+                                                                                    ∂H
+                                                    uref         3
+                                                     1 (x; ω) = x1 + (D1 − β1 )x2 −     ,
+                                                                                    ∂x1
+                                                                                     ∂H
+                                                    uref
+                                                     2 (x; ω) = ωx3 + (D2 − β2 )x4 −      .
+                                                                                     ∂x3
+393       The resulting drift components in the X2 and X4 equations are −x31 − D1 x2 and −ωx3 − D2 x4 , respectively.
+394   Direct substitution into the stationary FPK equation shows that the Hamiltonian transport terms cancel and that the
+395   damping and diffusion terms balance for the density in Eq.(35). This provides an analytical construction compatible
+396   with the target; it does not establish that the feedback pair is unique. The neural networks are trained without this
+397   reference law and need not recover the same pair to approximate the prescribed stationary density. No pointwise
+398   control comparison with this pair is used in the reported numerical validation.
+399       Fig. 21 evaluates the reconstruction accuracy of the second Duffing target at ω = 1.0 on the (x3 , x4 ) slice with
+400   x1 = x2 = 0. The target slice is C0 (1.0) exp[−(x23 +x24 )/2], which is Gaussian in both displayed directions and has equal
+401   widths at this parameter value. The non-Gaussian dependence on x1 is not assessed by this slice. All three methods
+402   reproduce the central concentration and the principal shape of this slice. The pointwise errors are concentrated mainly
+403   in the central region and are of order 10−4 on the displayed common scale. Their spatial patterns differ, with an
+404   asymmetric error pattern for the penalty formulation and more centrally concentrated patterns for the other two
+405   formulations. This figure compares the methods at a fixed parameter value.
+
+
+                                                                          23
+Fig. 21: Selected two-dimensional slice of the learned four-dimensional stationary PDF on the (x3 , x4 ) plane with x1 = x2 = 0 for the
+second Duffing target at ω = 1.0. The upper row shows the learned density slices, and the lower row shows their pointwise absolute errors
+relative to the Gaussian target slice C0 (1.0) exp[−(x23 + x24 )/2].
+
+
+
+
+                                                      Target PDF                                                            Target PDF
+                 0.015                                Barrier method                                                        Barrier method
+                                                      Penalty method                                                        Penalty method
+                                                      Soft method                 0.010                                     Soft method
+                 0.011
+                                                                                  0.008
+                 0.008
+                                                                                  0.005
+                 0.004                                                            0.003
+
+                 0.000                                                            0.000
+                     -3.0    -2.0      -1.0    0.0   1.0      2.0      3.0            -3.0   -2.0   -1.0     0.0           1.0      2.0      3.0
+
+
+
+
+                   -4.0                                                            -4.0
+
+                   -4.5                                                            -4.6
+
+                   -5.0                                                            -5.3
+                   -5.5                                                            -5.9
+                               Barrier Error                                                               Barrier Error
+                                                                                                           Penalty Error
+                   -6.0        Penalty Error
+                                                                                   -6.5                    Soft Error
+                               Soft Error
+
+
+                      -3.0   -2.0      -1.0    0.0   1.0      2.0      3.0            -3.0   -2.0   -1.0     0.0           1.0      2.0      3.0
+
+
+Fig. 22: Cross-sectional profiles of the (x3 , x4 ) slice with x1 = x2 = 0 for the second Duffing target at ω = 1.0. The left column varies x4 at
+x3 = 1.2, and the right column varies x3 at x4 = 1.5. Both target profiles are Gaussian. The upper panels compare the target and learned
+density values, and the lower panels show log10 of the pointwise absolute errors.
+
+
+
+
+                                                                             24
+406      Fig. 22 presents two off-center one-dimensional cuts at ω = 1.0, with x1 = x2 = 0. The left column shows
+407   p(0, 0, 1.2, x4 ), which has a Gaussian profile along x4 ; the right column shows p(0, 0, x3 , 1.5), which also has a Gaussian
+408   profile. The corresponding target curves are C0 (1.0) exp[−(1.22 + x24 )/2] and C0 (1.0) exp[−(x23 + 1.52 )/2], respectively.
+409   The learned profiles closely follow the target curves on both cuts. The lower panels display the pointwise absolute errors
+410   on a base-10 logarithmic scale. The error curves cross locally, so their ordering depends on the displayed coordinate
+
+
+
+
+      Fig. 23: MC validation of the learned feedback controls for the second Duffing target PDF at ω = 1.0. The first two rows show the
+      MC-estimated marginal PDFs in the (x1 , x2 ) plane and their corresponding pointwise absolute errors, while the last two rows show the
+      results in the (x3 , x4 ) plane. The L1 errors are reported in the corresponding error panels.
+
+
+411       Fig. 23 shows the MC-estimated marginal PDFs for the second Duffing target. The target (x1 , x2 ) marginal retains
+412   the quartic dependence on x1 and the Gaussian dependence on x2 , whereas the target (x3 , x4 ) marginal is Gaussian
+413   in both coordinates. At ω = 1.0, the target widths along x3 and x4 are equal. In the (x1 , x2 ) marginal, the three
+414   methods reproduce the broad central concentration, with L1 errors of 0.131, 0.120, and 0.124 for the soft constraint,
+415   penalty, and barrier formulations, respectively; the penalty formulation gives the smallest error in this marginal. In
+416   the (x3 , x4 ) marginal, the controlled responses reproduce the centered Gaussian target concentration, with L1 errors
+417   of 0.0938, 0.0985, and 0.0995; the soft constraint formulation gives the smallest error in this marginal. The change in
+418   the relative ordering across the two marginals again indicates that the MC results should be used primarily to verify
+419   the controlled stationary response rather than to establish a universal ranking among the three training strategies.
+420       Table 4 collects existing MC results. Comparisons are made within each row: different targets, domains, and
+421   marginals are not a common scale of system difficulty. The barrier formulation has the lowest reported errors in all
+422   four two-dimensional target cases and in the first Duffing (x1 , x2 ) marginal. The latter values, 0.1055, 0.1030, and
+423   0.1026, are close; their ordering alone does not demonstrate a substantial performance difference. The remaining
+
+
+                                                                       25
+                                    Table 4: Summary of the reported closed-loop MC L1 density errors -
+
+
+                         Case and parameter              Density compared      Soft constraint   Penalty   Barrier
+                         SDOF target 1, ω = 1.18         2D joint                 0.1190         0.0780    0.0693
+                         SDOF target 2, fixed target     2D joint                 0.1950         0.0942    0.0891
+                         Levitation target 1, ω = 5.0    2D joint                 0.4300         0.2820    0.1100
+                         Levitation target 2, ω = 10.3   2D joint                 0.0952         0.0970    0.0860
+                         Duffing target 1, ω = 1.8       (x1 , x2 ) marginal      0.1055         0.1030    0.1026
+                         Duffing target 1, ω = 1.8       (x3 , x4 ) marginal      0.0756         0.0806    0.0830
+                         Duffing target 2, ω = 1.0       (x1 , x2 ) marginal      0.1310         0.1200    0.1240
+                         Duffing target 2, ω = 1.0       (x3 , x4 ) marginal      0.0938         0.0985    0.0995
+
+
+424   Duffing marginals favor the soft-constraint or penalty formulation. These results support the barrier formulation’s
+425   observed accuracy advantage in the two-dimensional cases while retaining the projection-dependent ranking in four
+426   dimensions.
+
+
+427   5. Conclusion
+
+428       The considered examples show that parameter-conditioned density and control networks can approximate the
+429   principal features of prescribed stationary targets, including annular and asymmetric densities and four-dimensional
+430   Duffing targets. The displayed density-network sweeps support reuse of the individual models at selected parameter
+431   values within their training ranges. They do not establish the same parameter-conditioned control accuracy for all
+432   three strategies, and the first Duffing sweep tests slice amplitude rather than the width along x4 . At representative
+433   parameters, closed-loop MC simulations reproduce the main target concentration patterns. The relative integrated
+434   density errors depend on the system and, for the Duffing examples, on the marginal being examined.
+435       Under the adopted training and simulation settings, the barrier formulation offers an accuracy advantage over
+436   the soft-constraint and penalty formulations in the reported two-dimensional closed-loop density comparisons. As
+437   summarized in Table 4, it attains the lowest reported L1 errors for both SDOF targets and both levitation targets.
+438   For the first levitation target, the error is 0.1100, compared with 0.4300 and 0.2820 for the soft-constraint and penalty
+439   formulations, respectively. This provides numerical evidence of closer target-density agreement in that case. The
+440   advantage is not uniform across all projections: the Duffing marginal rankings vary, and the first-target (x1 , x2 ) errors
+441   are close.
+442       Future work may examine full-joint and interval-wide validation, explicit physical input constraints, adaptive sam-
+443   pling, and computational scaling. Extension to time-varying targets would require a separate transient formulation
+444   and validation.
+
+
+445   Acknowledgements
+
+446      Wantao Jia was supported by the National Natural Science Foundation of China (11872306).
+
+
+447   Declarations
+
+448   Author contributions
+449      Wantao Jia: Conceptualization, Methodology, Investigation, Software, Writing–review & editing, Supervision. Xi-
+450   anzheng Li: Writing–original draft, Visualization, Software, Methodology, Investigation. Xiaotong Feng: Writing–
+451   review & editing, Investigation, Formal analysis.
+
+452   Competing interests
+453      The authors declare that they have no known competing financial interests or personal relationships that could
+454   have appeared to influence the work reported in this paper.
+
+
+                                                                     26
+455   Data availability
+456      No experimental or observational datasets were used. The results reported in this article were generated through
+457   numerical training and simulations.
+
+
+458   References
+
+459    [1] Er G.-K. Probabilistic solutions of some multi-degree-of-freedom nonlinear stochastic dynamical systems excited
+460        by filtered Gaussian white noise. Computer Physics Communications 2014;185:4:1217–1222.
+
+461    [2] Chen C, Chen N, Wu J.-L. CGNSDE: Conditional Gaussian neural stochastic differential equation for modeling
+462        complex systems and data assimilation. Computer Physics Communications 2024;304:109302.
+
+463    [3] Åström K. J, Murray R. M, Feedback Systems: An Introduction for Scientists and Engineers, Princeton University
+464        Press, Princeton, 2010
+
+465    [4] Kwakernaak H, Sivan R, Linear Optimal Control Systems, Wiley-Interscience, New York, 1972
+
+466    [5] Soong T. T, Random Differential Equations in Science and Engineering, Academic Press, New York, 1973
+
+467    [6] Lin Y. K, Cai G. Q, Probabilistic Structural Dynamics: Advanced Theory and Applications, McGraw-Hill, New
+468        York, 1995
+
+469    [7] Wang H, Bounded Dynamic Stochastic Systems: Modelling and Control, Springer, London, 2000
+
+470    [8] Wang H. Robust control of the output probability density functions for multivariable stochastic systems with
+471        guaranteed stability. IEEE Transactions on Automatic Control 1999;44:11:2103–2107.
+
+472    [9] Guo L, Wang H. Generalized discrete-time PI control of output PDFs using square root B-spline expansion.
+473        Automatica 2005;41:1:159–162.
+
+474   [10] Wang H, Zhang J. Bounded stochastic distributions control for pseudo-ARMAX stochastic systems. IEEE Trans-
+475        actions on Automatic Control 2001;46:3:486–490.
+
+476   [11] Risken H, The Fokker–Planck Equation: Methods of Solution and Applications, 2nd Edition, Springer, Berlin,
+477        1996
+
+478   [12] Gardiner C. W, Stochastic Methods: A Handbook for the Natural and Social Sciences, 4th Edition, Springer,
+479        Berlin, 2009
+
+480   [13] Annunziato M, Borzì A. A Fokker–Planck control framework for multidimensional stochastic processes. Journal
+481        of Computational and Applied Mathematics 2013;237:1:487–507.
+
+482   [14] Zhu C. X, Zhu W. Q, Yang Y. F. Design of feedback control of a nonlinear stochastic system for targeting a
+483        pre-specified stationary probability distribution. Probabilistic Engineering Mechanics 2012;30:20–26.
+
+484   [15] Zhu C. X, Zhu W. Q. Feedback control of nonlinear stochastic systems for targeting a specified stationary proba-
+485        bility density. Automatica 2011;47:3:539–544.
+
+486   [16] Yang Y, Wang Y, Huang Z. L. Probabilistic tracking control of dissipated Hamiltonian systems excited by Gaussian
+487        white noises. International Journal of Systems Science 2021;52:9:1790–1805.
+
+488   [17] Jia W, Zhu W, Xu Y. Stochastic averaging of quasi-non-integrable Hamiltonian systems under combined Gaussian
+489        and Poisson white noise excitations. International Journal of Non-Linear Mechanics 2013;51:45–53.
+
+490   [18] Jia W, Zhu W. Stochastic averaging of quasi-partially integrable Hamiltonian systems under combined Gaussian
+491        and Poisson white noise excitations. Nonlinear Dynamics 2014;76:2:1271–1289.
+
+
+                                                               27
+492   [19] Jia W, Jin Z, Ni F, Zhu W. Neural network-based probabilistic tracking control for levitation systems under
+493        stochastic track irregularities. Probabilistic Engineering Mechanics 2025;82:103866.
+
+494   [20] Jia W, Jin Z, Zan W, Ni F. Design of feedback control of levitation system excited by track irregularity for
+495        targeting a pre-specified stationary probability density. Journal of Sound and Vibration 2025;607:119071.
+
+496   [21] Zhu W. Q, Nonlinear Stochastic Dynamics and Control in Hamiltonian Formulation, Science Press, Beijing, 2003
+
+497   [22] Zhu W. Q. Stochastic averaging methods in random vibration. ASME Applied Mechanics Reviews 1988;41:5:189–
+498        199.
+
+499   [23] Roberts J. B, Spanos P. D. Stochastic averaging: an approximate method of solving random vibration problems.
+500        International Journal of Non-Linear Mechanics 1986;21:2:111–134.
+
+501   [24] Kumar P, Narayanan S. Solution of the Fokker–Planck equation by finite element and finite difference methods
+502        for nonlinear systems. Sadhana 2006;31:4:445–461.
+
+503   [25] Masud A, Bergman L. A, Solution of the four dimensional Fokker–Planck equation: still a challenge, in: Proceed-
+504        ings of the ICOSSAR 2005, Rome, Italy, 2005
+
+505   [26] Annunziato M, Borzì A. Optimal control of probability density functions of stochastic processes. Mathematical
+506        Modelling and Analysis 2010;15:4:393–407.
+
+507   [27] Sun J. Q, Stochastic Dynamics and Control, Elsevier, Amsterdam, 2006
+
+508   [28] Xu Y, Zan W, Jia W, Kurths J. Path integral solutions of the governing equation of SDEs excited by Lévy white
+509        noise. Journal of Computational Physics 2019;394:41–55.
+
+510   [29] Zan W, Jia W, Xu Y. Reliability of dynamical systems with combined Gaussian and Poisson white noise via path
+511        integral method. Probabilistic Engineering Mechanics 2022;68:103252.
+
+512   [30] Zan W, Xu Y, Jia W, Kurths J. Response statistics of single-degree-of-freedom systems with Lévy noise by
+513        improved path integral method. Communications in Nonlinear Science and Numerical Simulation 2023;120:107144.
+
+514   [31] Kappen H. J. Path integrals and symmetry breaking for optimal control theory. Journal of Statistical Mechanics:
+515        Theory and Experiment 2005;2005:11:P11011.
+
+516   [32] Xu Y, Zhang H, Li Y, Zhou K, Liu Q, Kurths J. Solving Fokker–Planck equation using deep learning. Chaos
+517        2020;30:1:013133.
+
+518   [33] Zhai J, Dobson M, Li Y, A deep learning method for solving Fokker–Planck equations, in: Bruna J, Hesthaven J,
+519        Zdeborova L (Eds.), Proceedings of the 2nd Mathematical and Scientific Machine Learning Conference, Vol, 145
+520        of Proceedings of Machine Learning Research, PMLR, Virtual Conference, 2022;pp.568–597
+
+521   [34] Zhang D, Lu L, Guo L, Karniadakis G. E. Quantifying total uncertainty in physics-informed neural networks for
+522        solving forward and inverse stochastic problems. Journal of Computational Physics 2019;397:108850.
+
+523   [35] Chen X, Yang L, Duan J, Karniadakis G. E. Solving inverse stochastic problems from discrete particle observations
+524        using the Fokker–Planck equation and physics-informed neural networks. SIAM Journal on Scientific Computing
+525        2021;43:3:B811–B830.
+
+526   [36] Raissi M, Perdikaris P, Karniadakis G. E. Physics-informed neural networks: a deep learning framework for solving
+527        forward and inverse problems involving nonlinear partial differential equations. Journal of Computational Physics
+528        2019;378:686–707.
+
+529   [37] Halder R, Stabile G, Rozza G. Coupling physics informed neural networks with external solvers. Computer Physics
+530        Communications 2027;330:110424.
+
+
+                                                               28
+531   [38] Yin H, Liu P, Ng B. F. Accelerating Acoustic Agglomeration Predictions: A Physics-informed Neural Network with
+532        Fourier Featuring for Sound Pressure Gradient and Stokes Drag. Computer Physics Communications 2026;:110451.
+
+533   [39] Feng X, Zan W, Ma S, Jia W. Deep neural network-Monte Carlo framework for stochastic dynamic response
+534        prediction under combined continuous and jump excitations. Communications in Nonlinear Science and Numerical
+535        Simulation 2026;163:110833.
+
+536   [40] Thakur A, Zahr M. J. Feature tracking in physics-informed neural networks via joint optimization of analytical
+537        nonlinear manifolds: Application to boundary layers. Computer Physics Communications 2027;330:110419.
+
+538   [41] Liu Y, Cai L, Chen Y, Liu Q. Fluid–structure interaction training of integral conservation physics-informed neural
+539        networks for blood flow in elastic vessels. Computer Physics Communications 2026;324:110131.
+
+540   [42] Mowlavi S, Nabi S. Optimal control of PDEs using physics-informed neural networks. Journal of Computational
+541        Physics 2023;473:111731.
+
+542   [43] Lu L, Pestourie R, Yao W, Wang Z, Verdugo F, Johnson S. G. Physics-informed neural networks with hard
+543        constraints for inverse design. SIAM Journal on Scientific Computing 2021;43:6:B1105–B1132.
+
+544   [44] Norman G, Wentz J, Kolla H, Maute K, Doostan A. Constrained or unconstrained? neural-network-based equation
+545        discovery from data. Computer Methods in Applied Mechanics and Engineering 2025;436:117684.
+
+546   [45] Jia W, Jiao Z, Jin Z. Neural controller for targeting a desired stationary distribution in stochastic systems.
+547        International Journal of Non-Linear Mechanics 2025;174:105058.
+
+548   [46] Jia W, Hu M, Zan W, Ni F. Data-driven methods for the inverse problem of suspension system excited by jump
+549        and diffusion stochastic track excitation. International Journal of Non-Linear Mechanics 2024;166:104819.
+
+
+
+
+                                                                29
+
